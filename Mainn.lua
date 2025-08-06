@@ -4,12 +4,10 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Логгер
 local function log(msg)
 	print(string.format("[QTE Auto] %.3f | %s", tick(), msg))
 end
 
--- Получить Enum.KeyCode по строке
 local function toKeyCode(key)
 	local success, keyCode = pcall(function()
 		return Enum.KeyCode[key:upper()]
@@ -17,21 +15,19 @@ local function toKeyCode(key)
 	return success and keyCode or nil
 end
 
--- Нажатие клавиши
 local function pressKey(rawKey)
 	local keyCode = toKeyCode(rawKey)
 	if not keyCode then
-		log("Неизвестная клавиша: " .. tostring(rawKey))
+		log("Unknown key: " .. tostring(rawKey))
 		return
 	end
 
-	log("НАЖАТИЕ: " .. tostring(keyCode))
+	log("Clicked" .. tostring(keyCode))
 	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
 	task.wait(0.02)
 	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
 end
 
--- Основной хук
 local function hookQTE()
 	local remote = ReplicatedStorage:WaitForChild("QuickTimeEvent")
 
@@ -43,11 +39,9 @@ local function hookQTE()
 	remote.OnClientInvoke = function(key, timing)
 		if key and timing then
 			local triggerTime = tick() + timing
-			log(string.format("Ожидание %.3f сек до нажатия %s", timing, key))
+			log(string.format("Wait %.3f sec before pressing %s", timing, key))
 
-			-- Подождать до нужного момента
 			task.delay(timing, function()
-				log("НАЖАТИЕ В ИДЕАЛЬНЫЙ МОМЕНТ!")
 				pressKey(key)
 			end)
 		end
@@ -58,8 +52,8 @@ local function hookQTE()
 		return true
 	end
 
-	log("QTE перехвачен.")
+	log("QTE intercepted.")
 end
 
 hookQTE()
-log("Скрипт запущен.")
+log("Script Injected.")
