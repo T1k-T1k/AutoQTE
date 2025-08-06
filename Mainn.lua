@@ -1,15 +1,11 @@
--- Simple QTE Auto Script for Roblox
--- Automatically detects and presses QTE keys with timing
-
--- Services
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- Local player
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Key mapping
+-- Карта клавиш
 local KeyMapping = {
     ["E"] = Enum.KeyCode.E,
     ["Q"] = Enum.KeyCode.Q,
@@ -23,8 +19,8 @@ local KeyMapping = {
     ["F"] = Enum.KeyCode.F,
     ["R"] = Enum.KeyCode.R,
     ["T"] = Enum.KeyCode.T,
-    ["SPACE"] = Enum.KeyCode.Space,
     [" "] = Enum.KeyCode.Space,
+    ["SPACE"] = Enum.KeyCode.Space,
     ["1"] = Enum.KeyCode.One,
     ["2"] = Enum.KeyCode.Two,
     ["3"] = Enum.KeyCode.Three,
@@ -32,124 +28,67 @@ local KeyMapping = {
     ["5"] = Enum.KeyCode.Five
 }
 
--- Configurable delay (adjust this based on your game's QTE timing)
-local PRESS_DELAY = 0.05 -- Delay in seconds before pressing the key
+-- Сохраняем тайминги
+local timingData = {}
 
--- Logging function
-local function log(message)
-    print(string.format("[Simple QTE Auto][%.3f] %s", tick(), message))
+-- Логгер
+local function log(msg)
+    print(string.format("[QTE Auto] %.3f | %s", tick(), msg))
 end
 
--- Convert text to KeyCode
-local function getKeyCode(keyText)
-    if not keyText then
-        log("Key text is nil")
-        return nil
-    end
-
-    keyText = string.upper(string.gsub(keyText, "[^%w%s]", ""))
-    local keyCode = KeyMapping[keyText] or KeyMapping[string.sub(keyText, 1, 1)]
-    
-    if not keyCode then
-        log("Unknown key: " .. tostring(keyText))
-        return nil
-    end
-    return keyCode
+-- Получить KeyCode по тексту
+local function getKeyCode(text)
+    if not text then return nil end
+    text = string.upper(string.gsub(text, "[^%w%s]", ""))
+    return KeyMapping[text] or KeyMapping[string.sub(text, 1, 1)]
 end
 
--- Simulate key press
+-- Нажать клавишу
 local function pressKey(keyCode)
-    if not keyCode then return false end
+    if not keyCode then return end
+    log("НАЖАТИЕ КЛАВИШИ: " .. tostring(keyCode))
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
+    task.wait(0.05)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
+end
 
-    local success, errorMsg = pcall(function()
-        log("Pressing key: " .. tostring(keyCode))
-        VirtualInputManager:SendKeyEvent(true, keyCode, false, game) -- нажал
-        task.wait(0.05) -- 50 мс удержания
-        VirtualInputManager:SendKeyEvent(false, keyCode, false, game) -- отпустил
+-- Перехватываем RemoteFunction
+local function hookRemoteFunction()
+    local remoteFunction = ReplicatedStorage:WaitForChild("QuickTimeEvent")
+
+    local success, originalCallback = pcall(function()
+        return getcallbackvalue(remoteFunction, "OnClientInvoke")
     end)
 
-    if success then
-        log("Successfully pressed key: " .. tostring(keyCode))
-        return true
-    else
-        log("Error pressing key: " .. tostring(errorMsg))
-        return false
-    end
-end
+    remoteFunction.OnClientInvoke = function(key, timing)
+        if key and timing then
+            timingData[key] = {
+                idealTime = tick() + timing,
+                timingOffset = timing
+            }
 
--- Process QTE GUI
-local function processQTEGui(qteGui)
-    if not qteGui or not qteGui.Parent then
-        log("Invalid QTE GUI")
-        return
-    end
+            log(string.format("Пойман QTE: %s, идеальное время через %.3f сек", key, timing))
 
-    -- Find button or text label
-    local button = qteGui:FindFirstChild("Button")
-    if not button then
-        for _, child in pairs(qteGui:GetDescendants()) do
-            if (child:IsA("TextLabel") or child:IsA("TextButton")) and child.Text and child.Text ~= "" then
-                button = child
-                break
+            local keyCode = getKeyCode(key)
+            if keyCode then
+                -- Нажимаем за 0.2 секунды до нужного тайминга
+                local delay = math.max(0, timing - 0.2)
+                task.delay(delay, function()
+                    log(string.format("Нажатие за %.3f сек ДО идеального момента", 0.2))
+                    pressKey(keyCode)
+                end)
             end
         end
-    end
 
-    if not button then
-        log("No button or text label found in QTE GUI")
-        return
-    end
-
-    local keyText = button.Text
-    if not keyText or keyText == "" then
-        log("Button text is empty")
-        return
-    end
-
-    local keyCode = getKeyCode(keyText)
-    if not keyCode then
-        log("Failed to get KeyCode for: " .. tostring(keyText))
-        return
-    end
-
-    log("Detected QTE key: " .. keyText)
-    
-    -- Schedule key press with delay
-    coroutine.wrap(function()
-        wait(PRESS_DELAY)
-        if qteGui.Parent then -- Check if QTE GUI is still valid
-            pressKey(keyCode)
-        else
-            log("QTE GUI disappeared before key press")
+        if success and originalCallback then
+            return originalCallback(key, timing)
         end
-    end)()
+        return true
+    end
+
+    log("RemoteFunction перехвачен.")
 end
 
--- Monitor GUI for QTEs
-local function monitorGUI()
-    log("Starting QTE monitoring...")
-
-    -- Handle new QTE GUI elements
-    local function onQTEAdded(child)
-        if child.Name == "QuickTimeEvent" then
-            log("QTE GUI detected")
-            wait(0.05) -- Brief delay to ensure GUI is fully loaded
-            processQTEGui(child)
-        end
-    end
-
-    -- Connect to ChildAdded event
-    local connection = PlayerGui.ChildAdded:Connect(onQTEAdded)
-
-    -- Check for existing QTE GUI
-    local existingQTE = PlayerGui:FindFirstChild("QuickTimeEvent")
-    if existingQTE then
-        processQTEGui(existingQTE)
-    end
-
-    log("QTE monitoring active")
-end
-
--- Start the script
-monitorGUI()
-print("[Simple QTE Auto] Script loaded and running!")
+-- Запуск
+hookRemoteFunction()
+log("Скрипт запущен и ждёт QTE...")
