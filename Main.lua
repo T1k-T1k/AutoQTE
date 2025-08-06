@@ -68,10 +68,13 @@ end
 
 -- Конвертация текста клавиши в KeyCode
 function QTEAuto:getKeyCode(keyText)
-    if not keyText then return nil end
+    if not keyText then 
+        self:log("keyText is nil", "ERROR")
+        return nil 
+    end
     
     -- Очистка текста от лишних символов
-    keyText = string.upper(string.gsub(keyText, "%s+", ""))
+    keyText = string.upper(string.gsub(keyText, "[^%w%s]", ""))
     
     -- Попытка найти в маппинге
     local keyCode = KeyMapping[keyText]
@@ -86,21 +89,28 @@ function QTEAuto:getKeyCode(keyText)
         return keyCode
     end
     
-    self:log("Неизвестная клавиша: " .. tostring(keyText), "WARN")
+    self:log("Неизвестная клавиша: " .. tostring(keyText), "ERROR")
     return nil
 end
 
 -- Эмуляция нажатия клавиши
 function QTEAuto:pressKey(keyCode)
-    if not keyCode then return false end
+    if not keyCode then 
+        self:log("keyCode is nil", "ERROR")
+        return false 
+    end
     
-    pcall(function()
-        -- Нажатие клавиши
+    local success, errorMsg = pcall(function()
+        self:log(string.format("Отправка нажатия клавиши: %s", tostring(keyCode)))
         VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
         wait(0.01) -- Небольшая задержка между нажатием и отпусканием
-        -- Отпускание клавиши
         VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
     end)
+    
+    if not success then
+        self:log("Ошибка в VirtualInputManager: " .. tostring(errorMsg), "ERROR")
+        return false
+    end
     
     return true
 end
@@ -211,7 +221,7 @@ function QTEAuto:monitorGUI()
     local function onQTEAdded(qteGui)
         if qteGui.Name == "QuickTimeEvent" then
             self:log("QTE GUI появился")
-            wait(0.01) -- Небольшая задержка для загрузки элементов
+            wait(0.05) -- Увеличенная задержка для загрузки элементов
             processQTEGui(qteGui)
         end
     end
@@ -238,14 +248,14 @@ function QTEAuto:processQTEPress(keyText, buttonId)
     
     -- Поиск timing данных
     local timingInfo = self.timingData[keyText]
-    local pressDelay = 0
+    local pressDelay = 0.1 -- Фиксированная задержка 0.1 секунды по умолчанию
     
     if timingInfo then
         local timeSinceStart = tick() - timingInfo.timestamp
         local requiredTiming = timingInfo.timing
         
-        -- Расчет задержки с компенсацией системных задержек
-        pressDelay = math.max(0, requiredTiming - timeSinceStart - 0.05)
+        -- Добавляем 0.1 секунды к основному таймингу
+        pressDelay = math.max(0, requiredTiming - timeSinceStart + 0.1)
         
         self:log(string.format("Тайминг найден: требуется=%.3f, прошло=%.3f, задержка=%.3f", 
                  requiredTiming, timeSinceStart, pressDelay))
@@ -253,13 +263,11 @@ function QTEAuto:processQTEPress(keyText, buttonId)
         -- Очистка использованных данных
         self.timingData[keyText] = nil
     else
-        -- Если нет точных данных о тайминге, используем небольшую задержку
-        pressDelay = 0.1
-        self:log("Timing данные не найдены, используется стандартная задержка", "WARN")
+        self:log("Timing данные не найдены, используется задержка 0.1с", "WARN")
     end
     
-    -- Планирование нажатия
-    spawn(function()
+    -- Планирование нажатия с использованием coroutine
+    coroutine.wrap(function()
         if pressDelay > 0 then
             wait(pressDelay)
         end
@@ -278,7 +286,7 @@ function QTEAuto:processQTEPress(keyText, buttonId)
             self.statistics.errors = self.statistics.errors + 1
             self:log(string.format("Ошибка нажатия клавиши: %s", keyText), "ERROR")
         end
-    end)
+    end)()
 end
 
 -- Очистка устаревших данных
