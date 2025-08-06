@@ -72,7 +72,7 @@ local function hookRemoteFunction()
             local keyCode = getKeyCode(key)
             if keyCode then
                 -- Нажимаем за 0.2 секунды до нужного тайминга
-                local delay = math.max(0, timing - 0.2)
+                local delay = math.max(0, timing + 0.1)
                 task.delay(delay, function()
                     log(string.format("Нажатие за %.3f сек ДО идеального момента", 0.2))
                     pressKey(keyCode)
