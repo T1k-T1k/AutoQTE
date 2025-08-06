@@ -1,324 +1,453 @@
--- QuickTimeEvent Auto Script (VirtualInputManager версия)
+-- QTE Auto Script для Roblox
+-- Автоматическое выполнение QuickTimeEvent через эмуляцию нажатий клавиш
+
+-- Получение сервисов
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
+-- Локальный игрок
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer.PlayerGui
 
--- Переменные для отслеживания
-local isMonitoring = false
-local currentConnection = nil
-local qteStartTimes = {} -- Время начала QTE
-local processedButtons = {} -- Чтобы избежать дубликатов
+-- Маппинг клавиш для VirtualInputManager
+local KeyMapping = {
+    ["E"] = Enum.KeyCode.E,
+    ["Q"] = Enum.KeyCode.Q,
+    ["W"] = Enum.KeyCode.W,
+    ["A"] = Enum.KeyCode.A,
+    ["S"] = Enum.KeyCode.S,
+    ["D"] = Enum.KeyCode.D,
+    ["X"] = Enum.KeyCode.X,
+    ["Z"] = Enum.KeyCode.Z,
+    ["C"] = Enum.KeyCode.C,
+    ["F"] = Enum.KeyCode.F,
+    ["R"] = Enum.KeyCode.R,
+    ["T"] = Enum.KeyCode.T,
+    ["Space"] = Enum.KeyCode.Space,
+    [" "] = Enum.KeyCode.Space,
+    ["SPACE"] = Enum.KeyCode.Space,
+    ["1"] = Enum.KeyCode.One,
+    ["2"] = Enum.KeyCode.Two,
+    ["3"] = Enum.KeyCode.Three,
+    ["4"] = Enum.KeyCode.Four,
+    ["5"] = Enum.KeyCode.Five
+}
 
--- Функция для перехвата RemoteFunction и анализа тайминга
-local function hookRemoteFunction()
-    local Event = ReplicatedStorage:WaitForChild("QuickTimeEvent", 10)
-    
-    if not Event or not Event:IsA("RemoteFunction") then
-        warn("[QTE Auto] QuickTimeEvent RemoteFunction не найдена")
-        return false
-    end
-    
-    -- Перехватываем вызовы для анализа тайминга
-    local originalCallback = getcallbackvalue(Event, "OnClientInvoke")
-    
-    if not originalCallback then
-        warn("[QTE Auto] Не удалось получить оригинальный callback")
-        return false
-    end
-    
-    -- Хукаем только для мониторинга тайминга, НЕ заменяем функцию
-    local hookedCallback = function(...)
-        local args = {...}
-        local key = args[1]
-        local timing = args[2]
-        
-        print("[QTE Hook] Игра отправила:")
-        print("  Клавиша:", key)  
-        print("  Требуемый тайминг:", timing)
-        print("  Время события:", tick())
-        
-        -- Сохраняем информацию о тайминге для анализа
-        if key and timing then
-            qteStartTimes[key] = {
-                requiredTiming = timing,
-                eventTime = tick(),
-                processed = false
-            }
-        end
-        
-        -- Вызываем оригинальную функцию
-        return originalCallback(...)
-    end
-    
-    -- Мониторим сетевые вызовы (не заменяем основную функцию)
-    local mt = getrawmetatable(Event)
-    local oldNewIndex = mt.__newindex
-    
-    setrawmetatable(Event, setmetatable({}, {
-        __index = mt,
-        __newindex = function(self, key, value)
-            if key == "OnClientInvoke" and value ~= hookedCallback then
-                print("[QTE Hook] Обнаружен новый callback, обновляем hook...")
-                -- Обновляем наш hook
-                originalCallback = value
-            end
-            return oldNewIndex(self, key, value)
-        end
-    }))
-    
-    print("[QTE Auto] RemoteFunction hook установлен для мониторинга")
-    return true
-end
+-- Главный класс QTEAuto
+local QTEAuto = {}
+QTEAuto.__index = QTEAuto
 
--- Функция для получения текста кнопки
-local function getButtonText(button)
-    if not button or not button:IsA("GuiObject") then
-        return nil
-    end
+function QTEAuto.new()
+    local self = setmetatable({}, QTEAuto)
     
-    -- Проверяем все возможные места хранения текста
-    local textSources = {
-        button.Text,
-        button:FindFirstChild("TextLabel") and button.TextLabel.Text,
-        button:FindFirstChild("Text") and button.Text.Text
+    -- Состояние скрипта
+    self.isActive = false
+    self.connections = {}
+    self.processedButtons = {}
+    self.timingData = {}
+    self.statistics = {
+        detected = 0,
+        pressed = 0,
+        errors = 0,
+        startTime = tick()
     }
     
-    for _, text in ipairs(textSources) do
-        if text and text ~= "" and string.len(text) == 1 then
-            return string.upper(text)
-        end
+    -- Оригинальная функция RemoteFunction
+    self.originalCallback = nil
+    
+    return self
+end
+
+-- Логирование с временными метками
+function QTEAuto:log(message, level)
+    level = level or "INFO"
+    local timestamp = string.format("%.3f", tick() - self.statistics.startTime)
+    print(string.format("[QTE Auto][%s][%s] %s", level, timestamp, message))
+end
+
+-- Конвертация текста клавиши в KeyCode
+function QTEAuto:getKeyCode(keyText)
+    if not keyText then return nil end
+    
+    -- Очистка текста от лишних символов
+    keyText = string.upper(string.gsub(keyText, "%s+", ""))
+    
+    -- Попытка найти в маппинге
+    local keyCode = KeyMapping[keyText]
+    if keyCode then
+        return keyCode
     end
     
-    -- Ищем в дочерних элементах
-    for _, child in ipairs(button:GetDescendants()) do
-        if child:IsA("TextLabel") or child:IsA("TextButton") then
-            local text = child.Text
-            if text and text ~= "" and string.len(text) == 1 then
-                return string.upper(text)
-            end
-        end
+    -- Попытка использовать первый символ
+    local firstChar = string.sub(keyText, 1, 1)
+    keyCode = KeyMapping[firstChar]
+    if keyCode then
+        return keyCode
     end
     
+    self:log("Неизвестная клавиша: " .. tostring(keyText), "WARN")
     return nil
 end
 
--- Функция для нажатия клавиши через VirtualInputManager
-local function pressKey(key, delay)
-    spawn(function()
-        if delay and delay > 0 then
-            wait(delay)
-        end
-        
-        print("[QTE Auto] 🎯 Нажимаем клавишу:", key, "через", delay or 0, "секунд")
-        
-        -- Конвертируем клавишу в KeyCode
-        local keyCode = Enum.KeyCode[key]
-        if not keyCode then
-            -- Пытаемся с альтернативными названиями
-            local keyMappings = {
-                ["E"] = Enum.KeyCode.E,
-                ["Q"] = Enum.KeyCode.Q,
-                ["W"] = Enum.KeyCode.W,
-                ["A"] = Enum.KeyCode.A,
-                ["S"] = Enum.KeyCode.S,
-                ["D"] = Enum.KeyCode.D,
-                ["X"] = Enum.KeyCode.X,
-                ["Z"] = Enum.KeyCode.Z,
-                ["C"] = Enum.KeyCode.C,
-                ["F"] = Enum.KeyCode.F,
-                ["R"] = Enum.KeyCode.R,
-                ["T"] = Enum.KeyCode.T,
-                ["SPACE"] = Enum.KeyCode.Space,
-                [" "] = Enum.KeyCode.Space
-            }
-            keyCode = keyMappings[key]
-        end
-        
-        if keyCode then
-            -- Нажимаем клавишу
-            VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-            wait(0.05) -- Короткая задержка между нажатием и отпусканием
-            VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-            
-            print("[QTE Auto] ✅ Клавиша", key, "нажата успешно")
-        else
-            warn("[QTE Auto] ❌ Неизвестная клавиша:", key)
-        end
+-- Эмуляция нажатия клавиши
+function QTEAuto:pressKey(keyCode)
+    if not keyCode then return false end
+    
+    pcall(function()
+        -- Нажатие клавиши
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
+        wait(0.01) -- Небольшая задержка между нажатием и отпусканием
+        -- Отпускание клавиши
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
     end)
+    
+    return true
 end
 
--- Функция для создания уникального ID кнопки
-local function getButtonId(button, text)
-    return tostring(button) .. "_" .. text .. "_" .. tick()
-end
-
--- Функция мониторинга кнопок
-local function monitorQTEGui(qteGui)
-    if currentConnection then
-        currentConnection:Disconnect()
+-- Хук RemoteFunction для перехвата timing данных
+function QTEAuto:hookRemoteFunction()
+    local remoteFunction = ReplicatedStorage:FindFirstChild("QuickTimeEvent")
+    if not remoteFunction then
+        self:log("RemoteFunction 'QuickTimeEvent' не найдена", "ERROR")
+        return false
     end
     
-    local lastProcessedId = ""
-    
-    currentConnection = RunService.Heartbeat:Connect(function()
-        local button = qteGui:FindFirstChild("Button")
+    -- Сохраняем оригинальный callback
+    if not self.originalCallback then
+        local success, callback = pcall(function()
+            return getcallbackvalue(remoteFunction, "OnClientInvoke")
+        end)
         
-        if button and button.Visible then
-            local buttonText = getButtonText(button)
-            
-            if buttonText and buttonText ~= "" then
-                local buttonId = getButtonId(button, buttonText)
-                
-                -- Проверяем, не обрабатывали ли мы уже эту кнопку
-                if buttonId ~= lastProcessedId and not processedButtons[buttonId] then
-                    lastProcessedId = buttonId
-                    processedButtons[buttonId] = true
-                    
-                    print("[QTE Monitor] 🔍 Новая кнопка обнаружена:", buttonText)
-                    
-                    -- Получаем информацию о тайминге
-                    local qteInfo = qteStartTimes[buttonText]
-                    local currentTime = tick()
-                    
-                    if qteInfo and not qteInfo.processed then
-                        local requiredTiming = qteInfo.requiredTiming
-                        local eventStartTime = qteInfo.eventTime
-                        local timeSinceStart = currentTime - eventStartTime
-                        
-                        -- Вычисляем когда нужно нажать (учитываем уже прошедшее время)
-                        local pressDelay = math.max(0, requiredTiming - timeSinceStart - 0.05) -- -0.05 для компенсации задержек
-                        
-                        print("[QTE Auto] ⏱️ Расчет тайминга:")
-                        print("  Требуемый тайминг:", requiredTiming)
-                        print("  Время с начала события:", timeSinceStart)
-                        print("  Задержка до нажатия:", pressDelay)
-                        
-                        -- Помечаем как обработанное
-                        qteInfo.processed = true
-                        
-                        -- Нажимаем клавишу с рассчитанной задержкой
-                        pressKey(buttonText, pressDelay)
-                    else
-                        -- Если нет информации о тайминге, используем стандартную задержку
-                        local defaultDelay = 1.0
-                        print("[QTE Auto] ⚠️ Нет информации о тайминге, используем задержку:", defaultDelay)
-                        pressKey(buttonText, defaultDelay)
-                    end
-                    
-                    -- Очищаем обработанные кнопки через некоторое время
-                    spawn(function()
-                        wait(5)
-                        processedButtons[buttonId] = nil
-                    end)
+        if success and callback then
+            self.originalCallback = callback
+            self:log("Оригинальный callback сохранен")
+        else
+            self:log("Не удалось получить оригинальный callback", "WARN")
+        end
+    end
+    
+    -- Создаем новый callback для мониторинга
+    local function monitoringCallback(key, timing)
+        -- Сохраняем данные о тайминге
+        if key and timing then
+            self.timingData[key] = {
+                timing = timing,
+                timestamp = tick()
+            }
+            self:log(string.format("Перехвачен QTE: клавиша=%s, тайминг=%.3f", key, timing))
+        end
+        
+        -- Вызываем оригинальный callback, если он есть
+        if self.originalCallback then
+            return self.originalCallback(key, timing)
+        end
+        
+        return true
+    end
+    
+    -- Устанавливаем новый callback
+    pcall(function()
+        remoteFunction.OnClientInvoke = monitoringCallback
+    end)
+    
+    self:log("RemoteFunction hook установлен")
+    return true
+end
+
+-- Мониторинг GUI элементов
+function QTEAuto:monitorGUI()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then
+        self:log("PlayerGui не найден", "ERROR")
+        return
+    end
+    
+    -- Функция обработки QTE GUI
+    local function processQTEGui(qteGui)
+        if not qteGui or not qteGui.Parent then return end
+        
+        -- Поиск кнопки
+        local button = qteGui:FindFirstChild("Button")
+        if not button then
+            -- Попытка найти кнопку в дочерних элементах
+            for _, child in pairs(qteGui:GetDescendants()) do
+                if child.Name == "Button" or (child:IsA("TextLabel") and child.Text and child.Text ~= "") then
+                    button = child
+                    break
                 end
             end
         end
-    end)
+        
+        if not button then
+            self:log("Кнопка не найдена в QTE GUI", "WARN")
+            return
+        end
+        
+        -- Генерация уникального ID для кнопки
+        local buttonId = tostring(button) .. "_" .. tick()
+        
+        -- Проверка на дубликаты
+        if self.processedButtons[buttonId] then
+            return
+        end
+        self.processedButtons[buttonId] = true
+        
+        -- Извлечение текста клавиши
+        local keyText = button.Text
+        if not keyText or keyText == "" then
+            self:log("Текст кнопки пуст", "WARN")
+            return
+        end
+        
+        self:log(string.format("Найдена QTE кнопка: %s", keyText))
+        self.statistics.detected = self.statistics.detected + 1
+        
+        -- Обработка нажатия
+        self:processQTEPress(keyText, buttonId)
+    end
     
-    print("[QTE Auto] 👀 Мониторинг GUI активирован")
+    -- Мониторинг появления QTE GUI
+    local function onQTEAdded(qteGui)
+        if qteGui.Name == "QuickTimeEvent" then
+            self:log("QTE GUI появился")
+            wait(0.01) -- Небольшая задержка для загрузки элементов
+            processQTEGui(qteGui)
+        end
+    end
+    
+    -- Подключение к событиям
+    self.connections.guiAdded = playerGui.ChildAdded:Connect(onQTEAdded)
+    
+    -- Проверка уже существующих QTE GUI
+    local existingQTE = playerGui:FindFirstChild("QuickTimeEvent")
+    if existingQTE then
+        processQTEGui(existingQTE)
+    end
+    
+    self:log("GUI мониторинг активирован")
 end
 
--- Основная функция запуска
-local function startMonitoring()
-    if isMonitoring then
-        print("[QTE Auto] ⚠️ Мониторинг уже запущен")
+-- Обработка нажатия QTE
+function QTEAuto:processQTEPress(keyText, buttonId)
+    local keyCode = self:getKeyCode(keyText)
+    if not keyCode then
+        self.statistics.errors = self.statistics.errors + 1
         return
     end
     
-    print("[QTE Auto] 🚀 Запуск системы автоматического нажатия клавиш...")
+    -- Поиск timing данных
+    local timingInfo = self.timingData[keyText]
+    local pressDelay = 0
     
-    -- Устанавливаем hook для мониторинга RemoteFunction
-    if not hookRemoteFunction() then
-        warn("[QTE Auto] ❌ Не удалось установить hook")
-        return
+    if timingInfo then
+        local timeSinceStart = tick() - timingInfo.timestamp
+        local requiredTiming = timingInfo.timing
+        
+        -- Расчет задержки с компенсацией системных задержек
+        pressDelay = math.max(0, requiredTiming - timeSinceStart - 0.05)
+        
+        self:log(string.format("Тайминг найден: требуется=%.3f, прошло=%.3f, задержка=%.3f", 
+                 requiredTiming, timeSinceStart, pressDelay))
+        
+        -- Очистка использованных данных
+        self.timingData[keyText] = nil
+    else
+        -- Если нет точных данных о тайминге, используем небольшую задержку
+        pressDelay = 0.1
+        self:log("Timing данные не найдены, используется стандартная задержка", "WARN")
     end
     
-    isMonitoring = true
+    -- Планирование нажатия
+    spawn(function()
+        if pressDelay > 0 then
+            wait(pressDelay)
+        end
+        
+        -- Проверка, что кнопка еще актуальна
+        if not self.processedButtons[buttonId] then
+            return
+        end
+        
+        -- Нажатие клавиши
+        local success = self:pressKey(keyCode)
+        if success then
+            self.statistics.pressed = self.statistics.pressed + 1
+            self:log(string.format("Нажата клавиша: %s", keyText))
+        else
+            self.statistics.errors = self.statistics.errors + 1
+            self:log(string.format("Ошибка нажатия клавиши: %s", keyText), "ERROR")
+        end
+    end)
+end
+
+-- Очистка устаревших данных
+function QTEAuto:cleanupData()
+    local currentTime = tick()
     
-    -- Очищаем предыдущие данные
-    qteStartTimes = {}
-    processedButtons = {}
-    
-    -- Мониторим существующий GUI
-    local qteGui = PlayerGui:FindFirstChild("QuickTimeEvent")
-    if qteGui then
-        print("[QTE Auto] 📱 Найден существующий QuickTimeEvent GUI")
-        monitorQTEGui(qteGui)
+    -- Очистка timing данных старше 5 секунд
+    for key, data in pairs(self.timingData) do
+        if currentTime - data.timestamp > 5 then
+            self.timingData[key] = nil
+        end
     end
     
-    -- Мониторим новые GUI
-    PlayerGui.ChildAdded:Connect(function(child)
-        if child.Name == "QuickTimeEvent" and isMonitoring then
-            print("[QTE Auto] 📥 Новый QuickTimeEvent GUI появился")
-            wait(0.1) -- Небольшая задержка для стабилизации
-            monitorQTEGui(child)
+    -- Очистка обработанных кнопок (оставляем только последние 100)
+    local buttonCount = 0
+    for _ in pairs(self.processedButtons) do
+        buttonCount = buttonCount + 1
+    end
+    
+    if buttonCount > 100 then
+        -- Простая очистка - удаляем все
+        self.processedButtons = {}
+    end
+end
+
+-- Запуск автоматизации
+function QTEAuto:start()
+    if self.isActive then
+        self:log("Скрипт уже запущен", "WARN")
+        return false
+    end
+    
+    self:log("Запуск QTE Auto...")
+    
+    -- Сброс статистики
+    self.statistics = {
+        detected = 0,
+        pressed = 0,
+        errors = 0,
+        startTime = tick()
+    }
+    
+    -- Очистка данных
+    self.processedButtons = {}
+    self.timingData = {}
+    
+    -- Установка хука RemoteFunction
+    local hookSuccess = self:hookRemoteFunction()
+    if not hookSuccess then
+        self:log("Не удалось установить hook", "ERROR")
+        return false
+    end
+    
+    -- Запуск мониторинга GUI
+    self:monitorGUI()
+    
+    -- Периодическая очистка данных
+    self.connections.cleanup = RunService.Heartbeat:Connect(function()
+        if tick() % 10 < 0.1 then -- Каждые 10 секунд
+            self:cleanupData()
         end
     end)
     
-    print("[QTE Auto] ✅ Система готова! Будет нажимать клавиши в нужный момент")
+    self.isActive = true
+    self:log("QTE Auto успешно запущен!")
+    return true
 end
 
--- Функция остановки
-local function stopMonitoring()
-    isMonitoring = false
-    
-    if currentConnection then
-        currentConnection:Disconnect()
-        currentConnection = nil
+-- Остановка автоматизации
+function QTEAuto:stop()
+    if not self.isActive then
+        self:log("Скрипт уже остановлен", "WARN")
+        return false
     end
     
-    -- Очищаем данные
-    qteStartTimes = {}
-    processedButtons = {}
+    self:log("Остановка QTE Auto...")
     
-    print("[QTE Auto] 🛑 Мониторинг остановлен")
-end
-
--- Функция для ручного тестирования
-local function testKeyPress(key)
-    print("[QTE Test] 🧪 Тестируем нажатие клавиши:", key)
-    pressKey(key, 0)
-end
-
--- Функция статистики
-local function getStats()
-    print("[QTE Stats] 📊 Текущее состояние:")
-    print("  Активен:", isMonitoring)
-    print("  Отслеживаемых событий:", #qteStartTimes)
-    print("  Обработанных кнопок:", #processedButtons)
-    
-    if next(qteStartTimes) then
-        print("  Последние события:")
-        for key, info in pairs(qteStartTimes) do
-            print(string.format("    %s: тайминг=%.2f, обработано=%s", 
-                key, info.requiredTiming, tostring(info.processed)))
+    -- Отключение всех соединений
+    for name, connection in pairs(self.connections) do
+        if connection then
+            connection:Disconnect()
         end
     end
+    self.connections = {}
+    
+    -- Восстановление оригинального callback
+    if self.originalCallback then
+        local remoteFunction = ReplicatedStorage:FindFirstChild("QuickTimeEvent")
+        if remoteFunction then
+            pcall(function()
+                remoteFunction.OnClientInvoke = self.originalCallback
+            end)
+        end
+    end
+    
+    self.isActive = false
+    self:log("QTE Auto остановлен!")
+    return true
 end
 
--- Экспорт функций
+-- Проверка статуса
+function QTEAuto:isRunning()
+    return self.isActive
+end
+
+-- Получение статистики
+function QTEAuto:getStats()
+    local runtime = tick() - self.statistics.startTime
+    local stats = {
+        isRunning = self.isActive,
+        runtime = runtime,
+        detected = self.statistics.detected,
+        pressed = self.statistics.pressed,
+        errors = self.statistics.errors,
+        successRate = self.statistics.detected > 0 and (self.statistics.pressed / self.statistics.detected * 100) or 0
+    }
+    
+    return stats
+end
+
+-- Создание глобального экземпляра
+local qteAutoInstance = QTEAuto.new()
+
+-- Экспорт в _G
 _G.QTEAuto = {
-    start = startMonitoring,
-    stop = stopMonitoring,
-    isRunning = function() return isMonitoring end,
-    testKey = testKeyPress,
-    getStats = getStats
+    start = function()
+        return qteAutoInstance:start()
+    end,
+    
+    stop = function()
+        return qteAutoInstance:stop()
+    end,
+    
+    isRunning = function()
+        return qteAutoInstance:isRunning()
+    end,
+    
+    getStats = function()
+        return qteAutoInstance:getStats()
+    end,
+    
+    -- Дополнительные функции для отладки
+    debug = {
+        getTimingData = function()
+            return qteAutoInstance.timingData
+        end,
+        
+        getProcessedButtons = function()
+            local count = 0
+            for _ in pairs(qteAutoInstance.processedButtons) do
+                count = count + 1
+            end
+            return count
+        end,
+        
+        clearData = function()
+            qteAutoInstance.processedButtons = {}
+            qteAutoInstance.timingData = {}
+            print("[QTE Auto] Данные очищены")
+        end
+    }
 }
 
--- Инструкции
-print("=== QuickTimeEvent Auto Clicker ===")
-print("🎮 Автоматически нажимает клавиши в нужный момент")
-print("")
-print("📋 Команды:")
-print("  _G.QTEAuto.start() - запустить автонажатие")
-print("  _G.QTEAuto.stop() - остановить") 
-print("  _G.QTEAuto.testKey('E') - протестировать клавишу")
-print("  _G.QTEAuto.getStats() - показать статистику")
-print("")
+-- Автозапуск (можно закомментировать)
+print("[QTE Auto] Скрипт загружен! Используйте _G.QTEAuto.start() для запуска")
+print("[QTE Auto] Доступные команды:")
+print("  _G.QTEAuto.start() - запуск")
+print("  _G.QTEAuto.stop() - остановка") 
+print("  _G.QTEAuto.isRunning() - проверка статуса")
+print("  _G.QTEAuto.getStats() - статистика")
 
--- Автозапуск
-startMonitoring()
+_G.QTEAuto.start()
