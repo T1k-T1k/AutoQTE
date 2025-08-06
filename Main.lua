@@ -103,9 +103,7 @@ function QTEAuto:pressKey(keyCode)
     
     local success, errorMsg = pcall(function()
         self:log(string.format("Попытка отправки нажатия клавиши через VirtualInputManager: %s", tostring(keyCode)))
-        VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
-        wait(0.01) -- Небольшая задержка между нажатием и отпусканием
-        VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
     end)
     
     if success then
@@ -117,8 +115,6 @@ function QTEAuto:pressKey(keyCode)
         local uisSuccess, uisError = pcall(function()
             self:log(string.format("Попытка отправки нажатия через UserInputService: %s", tostring(keyCode)))
             UserInputService.InputBegan:Fire({KeyCode = keyCode, UserInputType = Enum.UserInputType.Keyboard}, false)
-            wait(0.01)
-            UserInputService.InputEnded:Fire({KeyCode = keyCode, UserInputType = Enum.UserInputType.Keyboard}, false)
         end)
         if uisSuccess then
             self:log(string.format("Успешное нажатие через UserInputService: %s", tostring(keyCode)))
