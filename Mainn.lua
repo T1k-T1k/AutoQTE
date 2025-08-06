@@ -41,7 +41,7 @@ local function pressKey(keyCode)
     if not keyCode then return end
     log("НАЖАТИЕ КЛАВИШИ: " .. tostring(keyCode))
     VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
-    task.wait(0.05)
+    task.wait(0.02)
     VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
 end
 
@@ -65,7 +65,7 @@ local function hookRemoteFunction()
             local keyCode = getKeyCode(key)
             if keyCode then
                 -- Нажимаем за 0.2 секунды до нужного тайминга
-                local delay = math.max(0, timing + 0.1)
+                local delay = math.max(0, timing + 0)
                 task.delay(delay, function()
                     log(string.format("Нажатие за %.3f сек ДО идеального момента", 0.2))
                     pressKey(keyCode)
