@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
 
 -- Локальный игрок
 local LocalPlayer = Players.LocalPlayer
@@ -101,18 +102,32 @@ function QTEAuto:pressKey(keyCode)
     end
     
     local success, errorMsg = pcall(function()
-        self:log(string.format("Отправка нажатия клавиши: %s", tostring(keyCode)))
+        self:log(string.format("Попытка отправки нажатия клавиши через VirtualInputManager: %s", tostring(keyCode)))
         VirtualInputManager:SendKeyEvent(true, keyCode, false, nil)
         wait(0.01) -- Небольшая задержка между нажатием и отпусканием
         VirtualInputManager:SendKeyEvent(false, keyCode, false, nil)
     end)
     
-    if not success then
+    if success then
+        self:log(string.format("Успешное нажатие через VirtualInputManager: %s", tostring(keyCode)))
+        return true
+    else
         self:log("Ошибка в VirtualInputManager: " .. tostring(errorMsg), "ERROR")
-        return false
+        -- Попытка через UserInputService
+        local uisSuccess, uisError = pcall(function()
+            self:log(string.format("Попытка отправки нажатия через UserInputService: %s", tostring(keyCode)))
+            UserInputService.InputBegan:Fire({KeyCode = keyCode, UserInputType = Enum.UserInputType.Keyboard}, false)
+            wait(0.01)
+            UserInputService.InputEnded:Fire({KeyCode = keyCode, UserInputType = Enum.UserInputType.Keyboard}, false)
+        end)
+        if uisSuccess then
+            self:log(string.format("Успешное нажатие через UserInputService: %s", tostring(keyCode)))
+            return true
+        else
+            self:log("Ошибка в UserInputService: " .. tostring(uisError), "ERROR")
+            return false
+        end
     end
-    
-    return true
 end
 
 -- Хук RemoteFunction для перехвата timing данных
@@ -242,9 +257,12 @@ end
 function QTEAuto:processQTEPress(keyText, buttonId)
     local keyCode = self:getKeyCode(keyText)
     if not keyCode then
+        self:log(string.format("Ошибка: Не удалось определить keyCode для клавиши %s", tostring(keyText)), "ERROR")
         self.statistics.errors = self.statistics.errors + 1
         return
     end
+    
+    self:log(string.format("Запуск обработки нажатия для клавиши: %s, buttonId: %s", keyText, buttonId))
     
     -- Поиск timing данных
     local timingInfo = self.timingData[keyText]
@@ -268,12 +286,15 @@ function QTEAuto:processQTEPress(keyText, buttonId)
     
     -- Планирование нажатия с использованием coroutine
     coroutine.wrap(function()
+        self:log(string.format("Ожидание задержки %.3f секунд для клавиши %s", pressDelay, keyText))
         if pressDelay > 0 then
             wait(pressDelay)
         end
         
+        self:log(string.format("Проверка актуальности buttonId %s перед нажатием", buttonId))
         -- Проверка, что кнопка еще актуальна
         if not self.processedButtons[buttonId] then
+            self:log(string.format("Нажатие отменено: buttonId %s уже неактуален", buttonId), "WARN")
             return
         end
         
@@ -286,6 +307,9 @@ function QTEAuto:processQTEPress(keyText, buttonId)
             self.statistics.errors = self.statistics.errors + 1
             self:log(string.format("Ошибка нажатия клавиши: %s", keyText), "ERROR")
         end
+        
+        -- Очистка buttonId после нажатия
+        self.processedButtons[buttonId] = nil
     end)()
 end
 
