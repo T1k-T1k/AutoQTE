@@ -33,7 +33,7 @@ local KeyMapping = {
 }
 
 -- Configurable delay (adjust this based on your game's QTE timing)
-local PRESS_DELAY = 0.1 -- Delay in seconds before pressing the key
+local PRESS_DELAY = 0.05 -- Delay in seconds before pressing the key
 
 -- Logging function
 local function log(message)
@@ -59,14 +59,13 @@ end
 
 -- Simulate key press
 local function pressKey(keyCode)
-    if not keyCode then
-        log("KeyCode is nil")
-        return false
-    end
+    if not keyCode then return false end
 
     local success, errorMsg = pcall(function()
         log("Pressing key: " .. tostring(keyCode))
-        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game) -- нажал
+        task.wait(0.05) -- 50 мс удержания
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, game) -- отпустил
     end)
 
     if success then
