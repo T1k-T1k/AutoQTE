@@ -254,8 +254,8 @@ function QTEAuto:processQTEPress(keyText, buttonId)
         local timeSinceStart = tick() - timingInfo.timestamp
         local requiredTiming = timingInfo.timing
         
-        -- Добавляем 0.1 секунды к основному таймингу
-        pressDelay = math.max(0, requiredTiming - timeSinceStart + 0.1)
+        -- Нажатие через 0.1 секунды после основного тайминга
+        pressDelay = math.max(0, requiredTiming + 0.1 - timeSinceStart)
         
         self:log(string.format("Тайминг найден: требуется=%.3f, прошло=%.3f, задержка=%.3f", 
                  requiredTiming, timeSinceStart, pressDelay))
@@ -450,12 +450,11 @@ _G.QTEAuto = {
     }
 }
 
--- Автозапуск (можно закомментировать)
-print("[QTE Auto] Скрипт загружен! Используйте _G.QTEAuto.start() для запуска")
+-- Автозапуск
+print("[QTE Auto] Скрипт загружен! Автоматический запуск...")
 print("[QTE Auto] Доступные команды:")
 print("  _G.QTEAuto.start() - запуск")
 print("  _G.QTEAuto.stop() - остановка") 
 print("  _G.QTEAuto.isRunning() - проверка статуса")
 print("  _G.QTEAuto.getStats() - статистика")
-
 _G.QTEAuto.start()
