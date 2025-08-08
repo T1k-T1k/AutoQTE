@@ -1,4 +1,4 @@
-local Players = game:GetService("Players"); local ReplicatedStorage = game:GetService("ReplicatedStorage"); local VirtualInputManager = game:GetService("VirtualInputManager"); local LocalPlayer = Players.LocalPlayer
+local PLRS = game:GetService("Players"); local RS = game:GetService("ReplicatedStorage"); local VIM = game:GetService("VirtualInputManager"); local LP = PLRS.LocalPlayer
 
 local function log(msg)
 	print(string.format("[Auto AS (Anubis Requiem)] %.3f | %s", tick(), msg))
@@ -19,13 +19,13 @@ local function pressKey(rawKey)
 	end
 
 	log("Clicked" .. tostring(keyCode))
-	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+	VIM:SendKeyEvent(true, keyCode, false, game)
 	task.wait(0.02)
-	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+	VIM:SendKeyEvent(false, keyCode, false, game)
 end
 
 local function hookQTE()
-	local remote = ReplicatedStorage:WaitForChild("QuickTimeEvent")
+	local remote = RS:WaitForChild("QuickTimeEvent")
 
 	local originalCallback = nil
 	pcall(function()
