@@ -1,11 +1,7 @@
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-
-local LocalPlayer = Players.LocalPlayer
+local Players = game:GetService("Players"); local ReplicatedStorage = game:GetService("ReplicatedStorage"); local VirtualInputManager = game:GetService("VirtualInputManager"); local LocalPlayer = Players.LocalPlayer
 
 local function log(msg)
-	print(string.format("[QTE Auto] %.3f | %s", tick(), msg))
+	print(string.format("[Auto AS (Anubis Requiem)] %.3f | %s", tick(), msg))
 end
 
 local function toKeyCode(key)
